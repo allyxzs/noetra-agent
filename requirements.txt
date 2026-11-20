@@ -1,0 +1,4 @@
+# Noetra usa apenas a biblioteca padrão do Python em runtime.
+# Dependências opcionais de desenvolvimento:
+pytest>=8.0.0
+ruff>=0.6.0
