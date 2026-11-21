@@ -14,9 +14,13 @@ from .synthesizer import ContextSynthesizer
 class NoetraAgent:
     """Agente responsável por indexar, pesquisar e sintetizar contextos de projetos."""
 
-    def __init__(self, project_path: str | Path = ".", config: NoetraConfig | None = None) -> None:
+    def __init__(
+        self,
+        project_path: str | Path = ".",
+        config: NoetraConfig | None = None,
+    ) -> None:
         self.project_path = Path(project_path).resolve()
-        self.config = config or NoetraConfig()
+        self.config = config or NoetraConfig.from_project(self.project_path)
         self.retriever = ContextRetriever()
         self.synthesizer = ContextSynthesizer(self.config)
 

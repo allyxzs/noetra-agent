@@ -1,5 +1,7 @@
 # Noetra
 
+[![CI](https://github.com/allyxzs/noetra-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/allyxzs/noetra-agent/actions/workflows/ci.yml)
+
 **Noetra** é um agente leve e extensível para pesquisar contextos de projetos de software e recuperar informações relevantes com precisão (arquivo, linhas, símbolos e síntese grounded).
 
 Projetado para rodar **100% offline por padrão** (usando apenas a biblioteca padrão do Python com ranqueamento BM25 + boost de símbolos/caminhos) e integrar-se opcionalmente a **Ollama** ou **APIs compatíveis com OpenAI** para síntese de respostas.
@@ -8,10 +10,11 @@ Projetado para rodar **100% offline por padrão** (usando apenas a biblioteca pa
 
 ## Recursos
 
-- **Scanner inteligente de projetos:** ignora diretórios de build/cache (`node_modules`, `.git`, `.venv`, `dist`, etc.), detecta a stack automaticamente e extrai símbolos (funções, classes, interfaces e títulos Markdown).
-- **Recuperação BM25 com boost estrutural:** tokenização ciente de `camelCase` e `snake_case`, com peso adicional para correspondências em caminhos de arquivo e nomes de símbolos.
+- **Scanner inteligente com suporte a `.gitignore`:** ignora diretórios de build/cache (`node_modules`, `.git`, `.venv`, `dist`, etc.) e padrões do `.gitignore`, detecta a stack automaticamente e extrai símbolos (Python, JS/TS, Rust, Go e Markdown).
+- **Recuperação BM25 insensível a acentos:** tokenização ciente de `camelCase`, `snake_case` e normalização de diacríticos (`autenticacao` == `autenticação`), com boost para correspondências em caminhos de arquivo e símbolos.
 - **Cache persistente local:** salva o índice em `.noetra/index.json` para consultas instantâneas.
-- **Síntese flexível:** funciona em modo extrativo offline (`none`), com LLMs locais via **Ollama** ou via **OpenAI-compatible API**.
+- **Carregamento automático de `.env`:** lê configurações locais sem dependências externas.
+- **Síntese flexível:** funciona em modo extrativo inteligente offline (`none`), com LLMs locais via **Ollama** ou via **OpenAI-compatible API**.
 - **CLI e SDK Python:** pronto para uso no terminal, scripts ou integração como ferramenta em arquiteturas multi-agente.
 
 ---
@@ -19,8 +22,8 @@ Projetado para rodar **100% offline por padrão** (usando apenas a biblioteca pa
 ## Instalação
 
 ```bash
-git clone https://github.com/<seu-usuario>/noetra.git
-cd noetra
+git clone https://github.com/allyxzs/noetra-agent.git
+cd noetra-agent
 pip install -e .
 ```
 
@@ -37,11 +40,12 @@ pip install -e ".[dev]"
 ### 1. Inspecionar e indexar um projeto
 ```bash
 noetra inspect ./meu-projeto
+noetra tree ./meu-projeto
 ```
 
 ### 2. Pesquisar trechos relevantes
 ```bash
-noetra search "autenticação JWT" --path ./meu-projeto --top-k 5
+noetra search "autenticacao JWT" --path ./meu-projeto --top-k 5
 ```
 
 ### 3. Fazer uma pergunta contextualizada
@@ -89,48 +93,11 @@ OPENAI_BASE_URL=https://api.openai.com/v1
 
 ---
 
-## Estrutura do Repositório
-
-```text
-noetra/
-├── .github/workflows/ci.yml   # Pipeline de testes e lint no GitHub Actions
-├── examples/basic_usage.py    # Exemplo de uso via Python SDK
-├── src/noetra/
-│   ├── agent.py               # Orquestrador NoetraAgent
-│   ├── cli.py                 # Interface CLI (noetra)
-│   ├── config.py              # Configurações e variáveis de ambiente
-│   ├── models.py              # Dataclasses de chunks, resultados e relatórios
-│   ├── retriever.py           # Motor BM25 + persistência em JSON
-│   ├── scanner.py             # Scanner de diretórios e extrator de símbolos
-│   └── synthesizer.py         # Síntese extrativa, Ollama e OpenAI-compatible
-├── tests/test_noetra.py       # Testes automatizados
-├── .env.example
-├── .gitignore
-├── LICENSE
-├── pyproject.toml
-└── README.md
-```
-
----
-
-## Testes
+## Testes e Lint
 
 ```bash
+ruff check src tests
 pytest -v
-```
-
----
-
-## Publicando no GitHub
-
-```bash
-cd noetra
-git init
-git add .
-git commit -m "feat: initial release of Noetra context research agent"
-git branch -M main
-git remote add origin https://github.com/<seu-usuario>/noetra.git
-git push -u origin main
 ```
 
 ---

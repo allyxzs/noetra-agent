@@ -1,10 +1,11 @@
-"""Motor de recuperação BM25 com boost de caminho/símbolos e cache em disco."""
+"""Motor de recuperação BM25 com normalização de acentos e boost estrutural."""
 
 from __future__ import annotations
 
 import json
 import math
 import re
+import unicodedata
 from collections import Counter
 from pathlib import Path
 
@@ -15,19 +16,26 @@ TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_À-ÖØ-öø-ÿ]+")
 STOPWORDS: set[str] = {
     "a", "o", "as", "os", "de", "do", "da", "dos", "das", "em", "no", "na",
     "nos", "nas", "para", "por", "com", "sem", "um", "uma", "e", "ou", "que",
-    "como", "onde", "qual", "quais", "the", "a", "an", "of", "to", "in", "on",
-    "for", "with", "and", "or", "is", "are", "how", "where", "what", "this", "that",
+    "como", "onde", "qual", "quais", "fica", "ficam", "sobre", "the", "an",
+    "of", "to", "in", "on", "for", "with", "and", "or", "is", "are", "how",
+    "where", "what", "this", "that",
 }
 
 
+def strip_accents(text: str) -> str:
+    """Remove diacríticos para permitir busca insensível a acentuação."""
+    normalized = unicodedata.normalize("NFKD", text)
+    return "".join(ch for ch in normalized if not unicodedata.combining(ch))
+
+
 def tokenize(text: str) -> list[str]:
-    """Tokeniza texto dividindo também camelCase e snake_case."""
+    """Tokeniza texto dividindo camelCase, snake_case e normalizando acentos."""
     raw_tokens = TOKEN_PATTERN.findall(text)
     tokens: list[str] = []
     for raw in raw_tokens:
         camel_split = re.sub(r"([a-z])([A-Z])", r"\1 \2", raw)
         for part in re.split(r"[\s_]+", camel_split):
-            low = part.lower().strip()
+            low = strip_accents(part).lower().strip()
             if len(low) >= 2 and low not in STOPWORDS:
                 tokens.append(low)
     return tokens
@@ -46,7 +54,11 @@ class ContextRetriever:
         self._chunk_lengths: list[int] = []
         self._avg_len: float = 1.0
 
-    def build_index(self, chunks: list[DocumentChunk], metadata: ProjectMetadata | None = None) -> None:
+    def build_index(
+        self,
+        chunks: list[DocumentChunk],
+        metadata: ProjectMetadata | None = None,
+    ) -> None:
         """Constrói o índice BM25 em memória a partir dos chunks."""
         self.chunks = chunks
         self.metadata = metadata
@@ -66,7 +78,12 @@ class ContextRetriever:
         total_len = sum(self._chunk_lengths)
         self._avg_len = (total_len / len(chunks)) if chunks else 1.0
 
-    def search(self, query: str, top_k: int = 5, path_filter: str | None = None) -> list[SearchResult]:
+    def search(
+        self,
+        query: str,
+        top_k: int = 5,
+        path_filter: str | None = None,
+    ) -> list[SearchResult]:
         """Recupera os chunks mais relevantes para uma consulta."""
         if not self.chunks:
             return []
@@ -96,7 +113,9 @@ class ContextRetriever:
                     matched.add(term)
                     df = self._doc_freqs.get(term, 0)
                     idf = math.log(1 + (n_docs - df + 0.5) / (df + 0.5))
-                    denom = freq + self.k1 * (1 - self.b + self.b * (doc_len / self._avg_len))
+                    denom = freq + self.k1 * (
+                        1 - self.b + self.b * (doc_len / self._avg_len)
+                    )
                     score += idf * ((freq * (self.k1 + 1)) / denom)
 
                 if term in path_tokens:
@@ -125,7 +144,10 @@ class ContextRetriever:
             "metadata": self.metadata.to_dict() if self.metadata else None,
             "chunks": [c.to_dict() for c in self.chunks],
         }
-        index_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        index_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
     def load(self, index_path: Path) -> bool:
         """Carrega o índice salvo em disco, se existir."""

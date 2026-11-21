@@ -1,7 +1,8 @@
-"""Scanner de projetos, detecção de stack e fragmentação em chunks."""
+"""Scanner de projetos, suporte a .gitignore, detecção de stack e chunks."""
 
 from __future__ import annotations
 
+import fnmatch
 import os
 import re
 from collections import Counter
@@ -16,6 +17,8 @@ SYMBOL_PATTERNS = [
     re.compile(r"^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)"),
     re.compile(r"^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*="),
     re.compile(r"^\s*(?:export\s+)?(?:interface|type)\s+([A-Za-z_][A-Za-z0-9_]*)"),
+    re.compile(r"^\s*(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)"),
+    re.compile(r"^\s*func\s+(?:\([^)]+\)\s*)?([A-Za-z_][A-Za-z0-9_]*)"),
     re.compile(r"^\s*#{1,3}\s+(.+)"),
 ]
 
@@ -49,6 +52,32 @@ KEY_FILE_NAMES = {
 }
 
 
+def load_gitignore_patterns(root: Path) -> list[str]:
+    """Carrega padrões básicos do .gitignore da raiz do projeto."""
+    gitignore = root / ".gitignore"
+    if not gitignore.exists() or not gitignore.is_file():
+        return []
+
+    patterns: list[str] = []
+    for raw in gitignore.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or line.startswith("!"):
+            continue
+        patterns.append(line.rstrip("/"))
+    return patterns
+
+
+def is_ignored_by_patterns(rel_path: str, patterns: list[str]) -> bool:
+    """Verifica se um caminho relativo casa com algum padrão do .gitignore."""
+    parts = rel_path.split("/")
+    for pattern in patterns:
+        if fnmatch.fnmatch(rel_path, pattern) or fnmatch.fnmatch(parts[-1], pattern):
+            return True
+        if any(fnmatch.fnmatch(part, pattern) for part in parts[:-1]):
+            return True
+    return False
+
+
 def extract_symbols(lines: list[str]) -> list[str]:
     """Extrai nomes de funções, classes, tipos e headings de um trecho."""
     symbols: list[str] = []
@@ -74,25 +103,40 @@ def is_allowed_file(path: Path, config: NoetraConfig) -> bool:
     return False
 
 
-def scan_project(root_path: str | Path, config: NoetraConfig) -> tuple[list[DocumentChunk], ProjectMetadata]:
+def scan_project(
+    root_path: str | Path,
+    config: NoetraConfig,
+) -> tuple[list[DocumentChunk], ProjectMetadata]:
     """Percorre o diretório do projeto e gera chunks indexáveis + metadados."""
     root = Path(root_path).resolve()
     if not root.exists() or not root.is_dir():
         raise FileNotFoundError(f"Diretório de projeto não encontrado: {root}")
 
+    gitignore_patterns = load_gitignore_patterns(root) if config.respect_gitignore else []
     chunks: list[DocumentChunk] = []
     extensions_counter: Counter[str] = Counter()
     detected_stack: set[str] = set()
     key_files: list[str] = []
-    indexed_files = 0
+    indexed_files_list: list[str] = []
 
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = sorted(d for d in dirnames if d not in config.ignored_dirs)
         current_dir = Path(dirpath)
+        filtered_dirs: list[str] = []
+        for d in sorted(dirnames):
+            if d in config.ignored_dirs:
+                continue
+            rel_dir = (current_dir / d).relative_to(root).as_posix()
+            if gitignore_patterns and is_ignored_by_patterns(rel_dir, gitignore_patterns):
+                continue
+            filtered_dirs.append(d)
+        dirnames[:] = filtered_dirs
 
         for filename in sorted(filenames):
             file_path = current_dir / filename
             rel_path = file_path.relative_to(root).as_posix()
+
+            if gitignore_patterns and is_ignored_by_patterns(rel_path, gitignore_patterns):
+                continue
 
             if filename in STACK_INDICATORS:
                 detected_stack.add(STACK_INDICATORS[filename])
@@ -112,7 +156,7 @@ def scan_project(root_path: str | Path, config: NoetraConfig) -> tuple[list[Docu
             if not text.strip():
                 continue
 
-            indexed_files += 1
+            indexed_files_list.append(rel_path)
             ext = file_path.suffix.lower() or filename
             extensions_counter[ext] += 1
 
@@ -142,10 +186,11 @@ def scan_project(root_path: str | Path, config: NoetraConfig) -> tuple[list[Docu
 
     metadata = ProjectMetadata(
         root_path=str(root),
-        total_files=indexed_files,
+        total_files=len(indexed_files_list),
         total_chunks=len(chunks),
         detected_stack=sorted(detected_stack),
         extensions_count=dict(extensions_counter.most_common()),
         key_files=sorted(key_files),
+        indexed_files=indexed_files_list,
     )
     return chunks, metadata

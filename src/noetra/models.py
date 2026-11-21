@@ -55,6 +55,7 @@ class ProjectMetadata:
     detected_stack: list[str] = field(default_factory=list)
     extensions_count: dict[str, int] = field(default_factory=dict)
     key_files: list[str] = field(default_factory=list)
+    indexed_files: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -71,10 +72,11 @@ class ContextReport:
     project_metadata: ProjectMetadata | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        meta_dict = self.project_metadata.to_dict() if self.project_metadata else None
         return {
             "query": self.query,
             "answer": self.answer,
             "provider_used": self.provider_used,
             "results": [r.to_dict() for r in self.results],
-            "project_metadata": self.project_metadata.to_dict() if self.project_metadata else None,
+            "project_metadata": meta_dict,
         }

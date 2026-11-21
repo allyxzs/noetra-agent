@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-import urllib.error
 import urllib.request
 
 from .config import NoetraConfig
 from .models import SearchResult
+from .retriever import tokenize
 
 
 def build_prompt(query: str, results: list[SearchResult]) -> str:
@@ -30,6 +30,28 @@ def build_prompt(query: str, results: list[SearchResult]) -> str:
     )
 
 
+def _best_snippet(content: str, matched_terms: list[str], max_len: int = 180) -> str:
+    """Seleciona a linha com maior concentração de termos encontrados para o preview."""
+    lines = [line.strip() for line in content.splitlines() if line.strip()]
+    if not lines:
+        return ""
+
+    term_set = set(matched_terms)
+    best_idx = 0
+    best_hits = -1
+
+    for idx, line in enumerate(lines):
+        hits = sum(1 for tok in tokenize(line) if tok in term_set)
+        if hits > best_hits:
+            best_hits = hits
+            best_idx = idx
+
+    snippet = " ".join(lines[best_idx : best_idx + 2]).strip()
+    if len(snippet) > max_len:
+        return snippet[: max_len - 3] + "..."
+    return snippet
+
+
 class ContextSynthesizer:
     """Gera respostas consolidadas a partir dos trechos recuperados."""
 
@@ -40,7 +62,8 @@ class ContextSynthesizer:
         """Retorna (resposta, provedor_utilizado)."""
         if not results:
             return (
-                "Nenhum trecho relevante foi encontrado no contexto indexado para essa consulta.",
+                "Nenhum trecho relevante foi encontrado no contexto indexado "
+                "para essa consulta.",
                 "extractive",
             )
 
@@ -81,11 +104,12 @@ class ContextSynthesizer:
 
     def _call_openai(self, prompt: str) -> str:
         url = f"{self.config.openai_base_url.rstrip('/')}/chat/completions"
+        system_msg = "Você é o agente Noetra, especialista em contexto de projetos."
         payload = json.dumps(
             {
                 "model": self.config.llm_model,
                 "messages": [
-                    {"role": "system", "content": "Você é o agente Noetra, especialista em contexto de projetos."},
+                    {"role": "system", "content": system_msg},
                     {"role": "user", "content": prompt},
                 ],
                 "temperature": 0.2,
@@ -108,9 +132,7 @@ class ContextSynthesizer:
         lines = [f"Encontrados {len(results)} trecho(s) relevantes para: '{query}'"]
         for i, res in enumerate(results, start=1):
             c = res.chunk
-            preview = " ".join(c.content.splitlines()[:3]).strip()
-            if len(preview) > 160:
-                preview = preview[:157] + "..."
+            preview = _best_snippet(c.content, res.matched_terms)
             terms = ", ".join(res.matched_terms)
             lines.append(
                 f"{i}. {c.file_path}:{c.start_line}-{c.end_line} "
